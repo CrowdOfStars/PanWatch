@@ -483,16 +483,25 @@ class TestPhaseBFeatures(unittest.TestCase):
         """上游未读取 timeout 配置时，适配类仍需把它传给 ChatOpenAI。"""
         from src.modules.automation.tradingagents.agent import _bounded_graph_class
 
+        from tradingagents.graph import trading_graph
+        original = trading_graph.create_tier_client
+        captured = []
+
+        def factory(config, tier, **kwargs):
+            captured.append((tier, kwargs))
+            return tier
+
         class BaseGraph:
             def __init__(self, config):
-                self.config = config
+                self.deep = trading_graph.create_tier_client(config, "deep")
+                self.quick = trading_graph.create_tier_client(config, "quick")
 
-            def _get_provider_kwargs(self):
-                return {"max_retries": 0}
-
-        graph_cls = _bounded_graph_class(BaseGraph)
-        graph = graph_cls(config={"llm_timeout_seconds": 7})
-        self.assertEqual(graph._get_provider_kwargs(), {"max_retries": 0, "timeout": 7.0})
+        with patch.object(trading_graph, "create_tier_client", factory):
+            graph = _bounded_graph_class(BaseGraph)(config={"llm_timeout_seconds": 7})
+            self.assertIs(trading_graph.create_tier_client, factory)
+        self.assertEqual(captured, [("deep", {"timeout": 7.0}), ("quick", {"timeout": 7.0})])
+        self.assertEqual((graph.deep, graph.quick), ("deep", "quick"))
+        self.assertIs(trading_graph.create_tier_client, original)
 
     def test_paper_trading_bridge_disabled_skips(self):
         """模拟盘 bridge — enabled=False 直接 skip,不写库"""
@@ -687,8 +696,8 @@ class TestPortfolioContext(unittest.TestCase):
         patch_instrument_context(graph, "")
         self.assertEqual(graph.propagator.create_initial_state, original)
 
-    def test_run_sync_passes_native_portfolio_to_v050_propagate(self):
-        """运行入口必须把转换后的 portfolio 传给 0.5.0 propagate，而非提示词。"""
+    def test_run_sync_passes_native_portfolio_and_captures_v070_settings(self):
+        """持仓进入原生图；run_settings() 的独立元数据必须进入持久化结果。"""
         from contextlib import nullcontext
 
         from tradingagents.graph import trading_graph
@@ -701,6 +710,9 @@ class TestPortfolioContext(unittest.TestCase):
             def __init__(self, **kwargs):
                 self.propagator = None
                 self.total_cost = 0.01
+
+            def run_settings(self):
+                return {"version": "0.7.0", "deep_think_llm": "test-model"}
 
             def propagate(self, company_name, trade_date, asset_type="stock", portfolio=None):
                 captured.update({
@@ -737,6 +749,9 @@ class TestPortfolioContext(unittest.TestCase):
             )
 
         self.assertEqual(result["decision"], "HOLD")
+        self.assertEqual(result["final_state"]["run_settings"], {
+            "version": "0.7.0", "deep_think_llm": "test-model",
+        })
         self.assertEqual(captured["company_name"], "600519")
         self.assertIsInstance(captured["portfolio"], PortfolioContext)
         self.assertEqual(captured["portfolio"].positions[0].ticker, "600519")
