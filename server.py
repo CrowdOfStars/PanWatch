@@ -398,6 +398,19 @@ DATA_SOURCE_SEEDS: list[dict] = [
             "test_symbols": list(DEFAULT_TEST_SYMBOLS),
         },
         {
+            "name": "Tushare K线",
+            "type": "kline",
+            "provider": "tushare",
+            "config": {
+                "token": "",
+                "description": "Tushare Pro A股未复权日线，需安装 tushare 并配置 Token（或 TUSHARE_TOKEN）。",
+            },
+            "enabled": False,
+            "priority": 10,
+            "supports_batch": False,
+            "test_symbols": list(DEFAULT_TEST_SYMBOLS),
+        },
+        {
             "name": "Stooq K线",
             "type": "kline",
             "provider": "stooq",

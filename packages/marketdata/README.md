@@ -24,9 +24,18 @@
 
 ```bash
 pip install -e ./packages/marketdata          # 本地 editable(monorepo 内)
-# 依赖仅 httpx;yfinance 为可选 extra:
+# 核心依赖仅 httpx；SDK 数据源为可选 extra：
 pip install -e "./packages/marketdata[yfinance]"
+pip install -e "./packages/marketdata[tushare]"
 ```
+
+### Tushare K 线
+
+PanWatch 启动时会补齐默认关闭的「Tushare K线」。安装上述 extra（或在运行后端的环境中 `pip install tushare`）后，在数据源页面填写 Token 并启用；Token 留空时读取 `TUSHARE_TOKEN` 环境变量。默认优先级为 10，位于腾讯(0)、东方财富(5)之后；希望优先使用时可调整优先级。
+
+仅支持 A 股（沪/深/北交所）`daily` 日线，沿用旧版**未复权**口径，成交量单位为手；不提供港美股、指数或分钟线。接口权限及频率限制以 Tushare 账号为准。SDK 遵循进程代理环境变量，缺库、缺 Token 或调用失败通过 Engine 的错误诊断和故障转移处理。不调用 `set_token`，不会写入全局凭证文件。
+
+独立使用时配置 `SourceConfig(vendor="tushare", priority=10, config={"token": "你的 Token"})`，放入 `StaticConfigProvider` 的 `kline` 列表即可。
 
 ## 快速上手(独立使用)
 

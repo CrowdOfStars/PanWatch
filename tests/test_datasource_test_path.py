@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import unittest
 from types import SimpleNamespace
+from typing import Any
 from unittest import mock
 
 from marketdata import Bar, Quote
 from src.modules.market.data_collector import DataCollectorManager
 
 
-def _make_source(**kwargs):
+def _make_source(**kwargs) -> Any:
     defaults = dict(
         name="测试源",
         type="quote",
@@ -145,14 +146,25 @@ class TestKlineSourceTestPath(unittest.IsolatedAsyncioTestCase):
             [{"symbol": "600519", "last_close": 1.2, "last_date": "2026-07-16", "count": 2}],
         )
 
+    async def test_tushare_routes_config_to_vendor(self):
+        """Tushare 测试入口经真实 Engine 将凭证传给新 Vendor。"""
+        fixed = [Bar(date="2026-10-22", open=10, close=11, high=12, low=9, volume=100)]
+        source = _make_source(type="kline", provider="tushare", config={"token": "fixture-token"})
+        with mock.patch("marketdata.vendors.tushare.TushareKlineVendor.fetch", return_value=fixed) as fetch:
+            result = await DataCollectorManager()._test_kline_source(source, ["600519"])
+        self.assertTrue(result.success)
+        self.assertEqual(result.data[0]["last_close"], 11)
+        self.assertEqual(fetch.call_args.args[1]["token"], "fixture-token")
+        self.assertEqual(fetch.call_args.args[0][0].code, "600519")
+
     async def test_unbacked_provider_returns_clean_error_not_raise(self):
-        """kline 测试:provider 在包内无对应 vendor(如 tushare)应返回明确 error,不抛异常"""
+        """kline 测试:provider 在包内无对应 vendor 应返回明确 error,不抛异常"""
         manager = DataCollectorManager()
-        source = _make_source(type="kline", provider="tushare", test_symbols=["600519"])
+        source = _make_source(type="kline", provider="not_a_real_vendor", test_symbols=["600519"])
         result = await manager._test_kline_source(source, source.test_symbols)
 
         self.assertFalse(result.success)
-        self.assertIn("tushare", result.error)
+        self.assertIn("not_a_real_vendor", result.error)
         self.assertEqual(result.count, 0)
 
 
