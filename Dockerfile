@@ -5,6 +5,11 @@
 # 静态资源与目标架构无关，使用构建机原生平台，避免 ARM 镜像构建时通过 QEMU 跑 pnpm。
 FROM --platform=$BUILDPLATFORM node:24.14.0-alpine AS frontend-builder
 
+# 国内构建默认走镜像。GitHub Actions 在海外，构建时用 --build-arg 改回官方源。
+ARG NPM_REGISTRY=https://registry.npmmirror.com
+ENV COREPACK_NPM_REGISTRY=$NPM_REGISTRY \
+    npm_config_registry=$NPM_REGISTRY
+
 WORKDIR /app/frontend
 
 # 启用并固定 pnpm，避免镜像构建时随 npm 全局安装漂移
@@ -27,8 +32,16 @@ FROM python:3.11-slim-bookworm AS python-builder
 
 WORKDIR /app
 
+ARG APT_MIRROR=mirrors.aliyun.com
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ARG GITHUB_PROXY=https://gh-proxy.org
+
 # Git 只用于构建 TradingAgents，不带入最终镜像及其 Perl 依赖。
-RUN apt-get update && apt-get install -y --no-install-recommends git \
+RUN if [ -n "$APT_MIRROR" ]; then \
+      sed -i "s|deb.debian.org|${APT_MIRROR}|g; s|security.debian.org|${APT_MIRROR}|g" \
+        /etc/apt/sources.list.d/debian.sources; \
+    fi \
+    && apt-get update && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements-runtime.txt ./
@@ -36,14 +49,21 @@ COPY packages/ ./packages/
 
 # 本地开发保留 editable 安装；镜像内安装正常包，不依赖源码目录。
 # 不预编译字节码，避免把 .pyc 缓存打进镜像。
-RUN sed 's/^-e //' requirements-runtime.txt > /tmp/requirements-runtime.txt \
-    && pip install --no-cache-dir --no-compile --prefix=/install -r /tmp/requirements-runtime.txt
+# TradingAgents 走 git+https://github.com。代理把克隆改成 https://gh-proxy.org/https://github.com/...
+RUN if [ -n "$GITHUB_PROXY" ]; then \
+      git config --global url."${GITHUB_PROXY}/https://github.com/".insteadOf "https://github.com/"; \
+    fi \
+    && sed 's/^-e //' requirements-runtime.txt > /tmp/requirements-runtime.txt \
+    && pip install --no-cache-dir --no-compile --prefix=/install \
+      -i "$PIP_INDEX_URL" -r /tmp/requirements-runtime.txt
 
 
 # ===== Stage 3: Python 运行环境 =====
 FROM python:3.11-slim-bookworm
 
 WORKDIR /app
+
+ARG APT_MIRROR=mirrors.aliyun.com
 
 # 安装系统依赖
 # - tzdata: 时区数据（zoneinfo 模块需要）
@@ -52,7 +72,11 @@ WORKDIR /app
 #   https://github.com/microsoft/playwright/blob/v1.57.0/packages/playwright-core/src/server/registry/nativeDeps.ts
 # 固定 Bookworm：Trixie 的 libgbm1 会强制引入 Mesa / LLVM 图形驱动栈。
 # 不额外安装 GTK / EGL，截图使用 Chromium 自带的软件渲染。
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN if [ -n "$APT_MIRROR" ]; then \
+      sed -i "s|deb.debian.org|${APT_MIRROR}|g; s|security.debian.org|${APT_MIRROR}|g" \
+        /etc/apt/sources.list.d/debian.sources; \
+    fi \
+    && apt-get update && apt-get install -y --no-install-recommends \
     tzdata \
     # 中文字体
     fonts-noto-cjk \

@@ -26,6 +26,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build runtime image
-        run: docker build -t panwatch:smoke --build-arg VERSION=smoke .
+        run: docker build -t panwatch:smoke --build-arg VERSION=smoke --build-arg NPM_REGISTRY=https://registry.npmjs.org --build-arg PIP_INDEX_URL=https://pypi.org/simple --build-arg APT_MIRROR= --build-arg GITHUB_PROXY= .
       - name: Check runtime imports, PDF export, screenshots, and HTTP startup
         run: docker run --rm -v "$PWD:/checks:ro" panwatch:smoke python /checks/scripts/docker_smoke.py
